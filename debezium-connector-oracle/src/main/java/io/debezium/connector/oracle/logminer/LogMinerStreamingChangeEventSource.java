@@ -14,11 +14,13 @@ import java.text.DecimalFormat;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import org.slf4j.Logger;
@@ -140,10 +142,12 @@ public class LogMinerStreamingChangeEventSource implements StreamingChangeEventS
                         }
 
                         if (context.isRunning()) {
+                            endMiningSession(jdbcConnection, offsetContext);
+                            setLogFilesForMining(jdbcConnection, startScn);
                             startMiningSession(jdbcConnection, startScn, endScn);
                             startScn = processor.process(startScn, endScn);
 
-                            captureSessionMemoryStatistics(jdbcConnection);
+                            // captureSessionMemoryStatistics(jdbcConnection);
 
                             streamingMetrics.setCurrentBatchProcessingTime(Duration.between(start, Instant.now()));
                             pauseBetweenMiningSessions();
@@ -378,6 +382,7 @@ public class LogMinerStreamingChangeEventSource implements StreamingChangeEventS
             streamingMetrics.addCurrentMiningSessionStart(Duration.between(start, Instant.now()));
         }
         catch (SQLException e) {
+            LOGGER.error("Got exception when starting mining session.", e);
             // Capture the database state before throwing the exception up
             LogMinerDatabaseStateWriter.write(connection);
             throw e;
@@ -462,7 +467,27 @@ public class LogMinerStreamingChangeEventSource implements StreamingChangeEventS
                 LOGGER.debug("Top SCN calculation resulted in end before start SCN, using current SCN {} as end SCN.", currentScn);
                 return currentScn;
             }
-            LOGGER.debug("Using Top SCN calculation {} as end SCN.", topScnToMine);
+
+            if (prevEndScn != null) {
+                final Scn deltaScn = currentScn.subtract(prevEndScn);
+                if (deltaScn.compareTo(Scn.valueOf(connectorConfig.getLogMiningScnGapDetectionGapSizeMin())) > 0) {
+                    Optional<OffsetDateTime> prevEndScnTimestamp = connection.getScnToTimestamp(prevEndScn);
+                    if (prevEndScnTimestamp.isPresent()) {
+                        Optional<OffsetDateTime> currentScnTimestamp = connection.getScnToTimestamp(currentScn);
+                        if (currentScnTimestamp.isPresent()) {
+                            long timeDeltaMs = ChronoUnit.MILLIS.between(prevEndScnTimestamp.get(), currentScnTimestamp.get());
+                            if (timeDeltaMs < connectorConfig.getLogMiningScnGapDetectionTimeIntervalMaxMs()) {
+                                LOGGER.warn("Detected possible SCN gap, using current SCN, startSCN {}, prevEndScn {} timestamp {}, current SCN {} timestamp {}.",
+                                        startScn,
+                                        prevEndScn, prevEndScnTimestamp.get(), currentScn, currentScnTimestamp.get());
+                                return currentScn;
+                            }
+                        }
+                    }
+                }
+            }
+
+            LOGGER.debug("Using Top SCN calculation {} as end SCN. currentScn {}, startScn {}", topScnToMine, currentScn, startScn);
             return topScnToMine;
         }
     }

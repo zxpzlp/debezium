@@ -109,6 +109,7 @@ public class MemoryLogMinerEventProcessor extends AbstractLogMinerEventProcessor
 
             Instant queryStart = Instant.now();
             try (ResultSet resultSet = statement.executeQuery()) {
+                LOGGER.debug("End logminer query, time {}", Duration.between(queryStart, Instant.now()));
                 metrics.setLastDurationOfBatchCapturing(Duration.between(queryStart, Instant.now()));
 
                 Instant startProcessTime = Instant.now();
@@ -216,10 +217,10 @@ public class MemoryLogMinerEventProcessor extends AbstractLogMinerEventProcessor
         }
 
         if (transaction.getUserName() == null && !transaction.getEvents().isEmpty()) {
-            LOGGER.warn("Got transaction with null username {}", transaction);
+            LOGGER.debug("Got transaction with null username {}", transaction);
         }
         else if (getConfig().getLogMiningUsernameExcludes().contains(transaction.getUserName())) {
-            LOGGER.debug("Skipping transaction with excluded username {}", transaction);
+            LOGGER.trace("Skipping transaction with excluded username {}", transaction);
             return;
         }
 

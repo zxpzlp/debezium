@@ -10,7 +10,6 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 import io.debezium.connector.oracle.OracleConnectorConfig;
-import io.debezium.connector.oracle.logminer.logwriter.LogWriterFlushStrategy;
 import io.debezium.util.Strings;
 
 /**
@@ -91,32 +90,36 @@ public class LogMinerQueryBuilder {
             query.append("OR ").append(buildDdlPredicate()).append(") ");
         }
 
-        // Always ignore the flush table
-        query.append("AND TABLE_NAME != '").append(LogWriterFlushStrategy.LOGMNR_FLUSH_TABLE).append("' ");
+        // // Always ignore the flush table
+        // query.append("AND TABLE_NAME != '").append(LogWriterFlushStrategy.LOGMNR_FLUSH_TABLE).append("' ");
+        //
+        // // There are some common schemas that we automatically ignore when building the runtime Filter
+        // // predicates and we put that same list of schemas here and apply those in the generated SQL.
+        // if (!OracleConnectorConfig.EXCLUDED_SCHEMAS.isEmpty()) {
+        // query.append("AND SEG_OWNER NOT IN (");
+        // for (Iterator<String> i = OracleConnectorConfig.EXCLUDED_SCHEMAS.iterator(); i.hasNext();) {
+        // String excludedSchema = i.next();
+        // query.append("'").append(excludedSchema.toUpperCase()).append("'");
+        // if (i.hasNext()) {
+        // query.append(",");
+        // }
+        // }
+        // query.append(") ");
+        // }
 
-        // There are some common schemas that we automatically ignore when building the runtime Filter
-        // predicates and we put that same list of schemas here and apply those in the generated SQL.
-        if (!OracleConnectorConfig.EXCLUDED_SCHEMAS.isEmpty()) {
-            query.append("AND SEG_OWNER NOT IN (");
-            for (Iterator<String> i = OracleConnectorConfig.EXCLUDED_SCHEMAS.iterator(); i.hasNext();) {
-                String excludedSchema = i.next();
-                query.append("'").append(excludedSchema.toUpperCase()).append("'");
-                if (i.hasNext()) {
-                    query.append(",");
-                }
-            }
-            query.append(") ");
-        }
+        query.append(" AND seg_owner = 'IDENTITYDB' ");
+        query.append(
+                " AND table_name IN ('ORG_MULTIVALUED_ATTR','USERS','OAUTH2_RESOURCES','ORGANIZATIONS','MACHINE_ACCOUNTS','OAUTH2_CLIENTS','ACCOUNT_PASSWORDS','GLOBAL_ROLES','MA_MULTIVALUED_ATTRIBUTES','OAUTH2_CLIENT_MULTIVALUED_ATTR','OAUTH2_RESOURCE_MV_ATTR','ORG_LARGE_ATTR','ORG_MANAGED_BY','PASSWORD_POLICIES','SERVICE_REGISTRY','SERVICE_REGISTRY_MV_ATTR','SERVICE_ROLES','SERVICE_ROLE_MV_ATTR','SMS','SMS_LARGE_ATTR','SMS_MV_ATTR','SYSTEM_ACCOUNTS','SYSTEM_ACCOUNT_MV_ATTR','USER_MULTIVALUED_ATTRIBUTES','USER_LARGE_ATTRIBUTES','GROUPS','GROUP_MEMBERS','GROUP_MV_ATTR','CHANGE_NUMBERS')");
 
-        String schemaPredicate = buildSchemaPredicate(connectorConfig);
-        if (!Strings.isNullOrEmpty(schemaPredicate)) {
-            query.append("AND ").append(schemaPredicate).append(" ");
-        }
-
-        String tablePredicate = buildTablePredicate(connectorConfig);
-        if (!Strings.isNullOrEmpty(tablePredicate)) {
-            query.append("AND ").append(tablePredicate).append(" ");
-        }
+        // String schemaPredicate = buildSchemaPredicate(connectorConfig);
+        // if (!Strings.isNullOrEmpty(schemaPredicate)) {
+        // query.append("AND ").append(schemaPredicate).append(" ");
+        // }
+        //
+        // String tablePredicate = buildTablePredicate(connectorConfig);
+        // if (!Strings.isNullOrEmpty(tablePredicate)) {
+        // query.append("AND ").append(tablePredicate).append(" ");
+        // }
 
         query.append("))");
 

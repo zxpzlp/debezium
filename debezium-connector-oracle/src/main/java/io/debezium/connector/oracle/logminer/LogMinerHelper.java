@@ -36,6 +36,8 @@ public class LogMinerHelper {
     private static final String CURRENT = "CURRENT";
     private static final Logger LOGGER = LoggerFactory.getLogger(LogMinerHelper.class);
 
+    private static List<LogFile> logFiles;
+
     /**
      * This method substitutes CONTINUOUS_MINE functionality
      *
@@ -67,7 +69,37 @@ public class LogMinerHelper {
             throw new IllegalStateException("None of log files contains offset SCN: " + lastProcessedScn + ", re-snapshot is required.");
         }
 
+        logFiles = logFilesForMining;
+
         List<String> logFilesNames = logFilesForMining.stream().map(LogFile::getFileName).collect(Collectors.toList());
+        for (String file : logFilesNames) {
+            LOGGER.trace("Adding log file {} to mining session", file);
+            String addLogFileStatement = SqlUtils.addLogFileStatement("DBMS_LOGMNR.ADDFILE", file);
+            executeCallableStatement(connection, addLogFileStatement);
+        }
+
+        LOGGER.debug("Last mined SCN: {}, Log file list to mine: {}\n", lastProcessedScn, logFilesNames);
+    }
+
+    public static void setLogFilesForMining(OracleConnection connection, Scn lastProcessedScn)
+            throws SQLException {
+        removeLogFilesFromMining(connection);
+
+        List<String> logFilesNames = new ArrayList<>();
+
+        for (LogFile logFile : logFiles) {
+            if (logFile.getType() == LogFile.Type.ARCHIVE) {
+                if (logFile.getNextScn().compareTo(lastProcessedScn) >= 0) {
+                    logFilesNames.add(logFile.getFileName());
+                }
+            }
+            else if (logFile.getType() == LogFile.Type.REDO) {
+                if (logFile.isCurrent() || logFile.getNextScn().compareTo(lastProcessedScn) >= 0) {
+                    logFilesNames.add(logFile.getFileName());
+                }
+            }
+        }
+
         for (String file : logFilesNames) {
             LOGGER.trace("Adding log file {} to mining session", file);
             String addLogFileStatement = SqlUtils.addLogFileStatement("DBMS_LOGMNR.ADDFILE", file);

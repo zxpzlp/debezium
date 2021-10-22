@@ -423,7 +423,7 @@ public class OracleStreamingChangeEventSourceMetrics extends StreamingChangeEven
     }
 
     public void setCurrentBatchProcessingTime(Duration currentBatchProcessingTime) {
-        totalProcessingTime.accumulateAndGet(currentBatchProcessingTime, Duration::plus);
+        totalProcessingTime.set(currentBatchProcessingTime);
     }
 
     public void addCurrentResultSetNext(Duration currentNextTime) {

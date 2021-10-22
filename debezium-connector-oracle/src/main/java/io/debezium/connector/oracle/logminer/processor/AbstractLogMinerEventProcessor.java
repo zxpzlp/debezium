@@ -214,6 +214,10 @@ public abstract class AbstractLogMinerEventProcessor implements LogMinerEventPro
             getTransactionCache().put(transactionId, newTransaction);
             metrics.setActiveTransactions(getTransactionCache().size());
         }
+        else {
+            LOGGER.debug("Got wrong order transaction start event, setting user name for transaction {}, username {}", transaction, row.getUserName());
+            transaction.setUserName(row.getUserName());
+        }
     }
 
     /**
@@ -475,6 +479,10 @@ public abstract class AbstractLogMinerEventProcessor implements LogMinerEventPro
                 if (row.getHash() != 0L) {
                     transaction.getHashes().add(row.getHash());
                 }
+                if (transaction.getUserName() == null && row.getUserName() != null && !"UNKNOWN".equalsIgnoreCase(row.getUserName())) {
+                    LOGGER.debug("Got user name from DML row for transaction {}", transactionId);
+                }
+
                 LOGGER.trace("Adding {} to transaction {} for table '{}'.", row.getOperation(), transactionId, row.getTableId());
                 transaction.getEvents().add(eventSupplier.get());
                 metrics.setActiveTransactions(getTransactionCache().size());

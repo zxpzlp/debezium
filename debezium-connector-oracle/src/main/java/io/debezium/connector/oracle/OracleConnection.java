@@ -12,6 +12,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Types;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -443,5 +444,36 @@ public class OracleConnection extends JdbcConnection {
 
     private static ConnectionFactory resolveConnectionFactory(Configuration config) {
         return JdbcConnection.patternBasedFactory(connectionString(config));
+    }
+
+    /**
+     * Resolve a system change number to a timestamp, return value is in database timezone.
+     *
+     * The SCN to TIMESTAMP mapping is only retained for the duration of the flashback query area.
+     * This means that eventually the mapping between these values are no longer kept by Oracle
+     * and making a call with a SCN value that has aged out will result in an ORA-08181 error.
+     * This function explicitly checks for this use case and if a ORA-08181 error is thrown, it is
+     * therefore treated as if a value does not exist returning an empty optional value.
+     *
+     * @param scn the system change number, must not be {@code null}
+     * @return an optional timestamp when the system change number occurred
+     * @throws SQLException if a database exception occurred
+     */
+    public Optional<OffsetDateTime> getScnToTimestamp(Scn scn) throws SQLException {
+        try {
+            return queryAndMap("SELECT scn_to_timestamp('" + scn + "') FROM DUAL", rs -> rs.next()
+                    ? Optional.of(rs.getObject(1, OffsetDateTime.class))
+                    : Optional.empty());
+        }
+        catch (SQLException e) {
+            if (e.getMessage().startsWith("ORA-08181")) {
+                // ORA-08181 specified number is not a valid system change number
+                // This happens when the SCN provided is outside the flashback area range
+                // This should be treated as a value is not available rather than an error
+                return Optional.empty();
+            }
+            // Any other SQLException should be thrown
+            throw e;
+        }
     }
 }
