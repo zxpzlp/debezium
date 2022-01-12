@@ -179,6 +179,7 @@ public abstract class AbstractLogMinerEventProcessor<T extends AbstractTransacti
 
             Instant queryStart = Instant.now();
             try (ResultSet resultSet = statement.executeQuery()) {
+                LOGGER.debug("End logminer query, time {}", Duration.between(queryStart, Instant.now()));
                 metrics.setLastDurationOfBatchCapturing(Duration.between(queryStart, Instant.now()));
 
                 Instant startProcessTime = Instant.now();

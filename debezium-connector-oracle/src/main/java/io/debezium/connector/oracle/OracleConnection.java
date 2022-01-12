@@ -5,6 +5,9 @@
  */
 package io.debezium.connector.oracle;
 
+import static java.time.format.DateTimeFormatter.ISO_LOCAL_DATE;
+import static java.time.format.DateTimeFormatter.ISO_LOCAL_TIME;
+
 import java.sql.Clob;
 import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
@@ -13,6 +16,8 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -69,6 +74,13 @@ public class OracleConnection extends JdbcConnection {
     private final OracleDatabaseVersion databaseVersion;
 
     private static final String QUOTED_CHARACTER = "\"";
+
+    private final DateTimeFormatter dateTimeFormatter = new DateTimeFormatterBuilder()
+            .parseCaseInsensitive()
+            .append(ISO_LOCAL_DATE)
+            .appendLiteral(' ')
+            .append(ISO_LOCAL_TIME)
+            .toFormatter();
 
     public OracleConnection(Configuration config, Supplier<ClassLoader> classLoaderSupplier) {
         super(config, resolveConnectionFactory(config), classLoaderSupplier, QUOTED_CHARACTER, QUOTED_CHARACTER);
@@ -511,6 +523,24 @@ public class OracleConnection extends JdbcConnection {
             if (e.getMessage().startsWith("ORA-08181")) {
                 // ORA-08181 specified number is not a valid system change number
                 // This happens when the SCN provided is outside the flashback area range
+                // This should be treated as a value is not available rather than an error
+                return Optional.empty();
+            }
+            // Any other SQLException should be thrown
+            throw e;
+        }
+    }
+
+    public Optional<Scn> getTimestampToScn(OffsetDateTime time) throws SQLException {
+        try {
+            return queryAndMap("SELECT timestamp_to_scn(to_timestamp('" + time.format(dateTimeFormatter) + "','YYYY-MM-DD HH24:MI:SS.FF6')) FROM DUAL", rs -> rs.next()
+                    ? Optional.of(Scn.valueOf(rs.getString(1)))
+                    : Optional.empty());
+        }
+        catch (SQLException e) {
+            if (e.getMessage().startsWith("ORA-08180")) {
+                // ORA-08181 no snapshot found based on specified time
+                // This happens when the timestamp provided is outside the flashback area range
                 // This should be treated as a value is not available rather than an error
                 return Optional.empty();
             }
