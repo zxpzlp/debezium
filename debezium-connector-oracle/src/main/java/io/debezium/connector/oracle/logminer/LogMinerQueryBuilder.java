@@ -9,9 +9,11 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.regex.Pattern;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import io.debezium.connector.oracle.OracleConnectorConfig;
 import io.debezium.connector.oracle.OracleDatabaseSchema;
-import io.debezium.connector.oracle.logminer.logwriter.LogWriterFlushStrategy;
 import io.debezium.util.Strings;
 
 /**
@@ -20,8 +22,11 @@ import io.debezium.util.Strings;
  * @author Chris Cranford
  */
 public class LogMinerQueryBuilder {
+    private static final Logger LOGGER = LoggerFactory.getLogger(LogMinerQueryBuilder.class);
 
     private static final String LOGMNR_CONTENTS_VIEW = "V$LOGMNR_CONTENTS";
+
+    private static String querySql = null;
 
     /**
      * Builds the LogMiner contents view query.
@@ -52,6 +57,9 @@ public class LogMinerQueryBuilder {
      * @return the SQL string to be used to fetch changes from Oracle LogMiner
      */
     public static String build(OracleConnectorConfig connectorConfig, OracleDatabaseSchema schema) {
+        if (querySql != null) {
+            return querySql;
+        }
         final StringBuilder query = new StringBuilder(1024);
         query.append("SELECT SCN, SQL_REDO, OPERATION_CODE, TIMESTAMP, XID, CSF, TABLE_NAME, SEG_OWNER, OPERATION, ");
         query.append("USERNAME, ROW_ID, ROLLBACK, RS_ID ");
@@ -95,36 +103,55 @@ public class LogMinerQueryBuilder {
             query.append("OR ").append(buildDdlPredicate()).append(") ");
         }
 
-        // Always ignore the flush table
-        query.append("AND TABLE_NAME != '").append(LogWriterFlushStrategy.LOGMNR_FLUSH_TABLE).append("' ");
+        // // Always ignore the flush table
+        // query.append("AND TABLE_NAME != '").append(LogWriterFlushStrategy.LOGMNR_FLUSH_TABLE).append("' ");
+        //
+        // // There are some common schemas that we automatically ignore when building the runtime Filter
+        // // predicates and we put that same list of schemas here and apply those in the generated SQL.
+        // if (!OracleConnectorConfig.EXCLUDED_SCHEMAS.isEmpty()) {
+        // query.append("AND SEG_OWNER NOT IN (");
+        // for (Iterator<String> i = OracleConnectorConfig.EXCLUDED_SCHEMAS.iterator(); i.hasNext();) {
+        // String excludedSchema = i.next();
+        // query.append("'").append(excludedSchema.toUpperCase()).append("'");
+        // if (i.hasNext()) {
+        // query.append(",");
+        // }
+        // }
+        // query.append(") ");
+        // }
+        //
+        // String schemaPredicate = buildSchemaPredicate(connectorConfig);
+        // if (!Strings.isNullOrEmpty(schemaPredicate)) {
+        // query.append("AND ").append(schemaPredicate).append(" ");
+        // }
+        //
+        // String tablePredicate = buildTablePredicate(connectorConfig);
+        // if (!Strings.isNullOrEmpty(tablePredicate)) {
+        // query.append("AND ").append(tablePredicate).append(" ");
+        // }
 
-        // There are some common schemas that we automatically ignore when building the runtime Filter
-        // predicates and we put that same list of schemas here and apply those in the generated SQL.
-        if (!OracleConnectorConfig.EXCLUDED_SCHEMAS.isEmpty()) {
-            query.append("AND SEG_OWNER NOT IN (");
-            for (Iterator<String> i = OracleConnectorConfig.EXCLUDED_SCHEMAS.iterator(); i.hasNext();) {
-                String excludedSchema = i.next();
-                query.append("'").append(excludedSchema.toUpperCase()).append("'");
-                if (i.hasNext()) {
-                    query.append(",");
-                }
+        if (!Strings.isNullOrEmpty(connectorConfig.schemaIncludeList())) {
+            query.append("AND SEG_OWNER = '");
+            query.append(connectorConfig.schemaIncludeList());
+            query.append("' ");
+        }
+
+        if (!Strings.isNullOrEmpty(connectorConfig.tableIncludeList())) {
+            query.append("AND ").append("TABLE_NAME IN (");
+            String[] tables = connectorConfig.tableIncludeList().split(",");
+            for (String table : tables) {
+                query.append("'").append(table.substring(table.indexOf(".") + 1)).append("'").append(",");
             }
-            query.append(") ");
-        }
-
-        String schemaPredicate = buildSchemaPredicate(connectorConfig);
-        if (!Strings.isNullOrEmpty(schemaPredicate)) {
-            query.append("AND ").append(schemaPredicate).append(" ");
-        }
-
-        String tablePredicate = buildTablePredicate(connectorConfig);
-        if (!Strings.isNullOrEmpty(tablePredicate)) {
-            query.append("AND ").append(tablePredicate).append(" ");
+            query.deleteCharAt(query.lastIndexOf(","));
+            query.append(")");
         }
 
         query.append("))");
 
-        return query.toString();
+        querySql = query.toString();
+        LOGGER.debug("The logminer query SQL {}", query);
+
+        return querySql;
     }
 
     /**
