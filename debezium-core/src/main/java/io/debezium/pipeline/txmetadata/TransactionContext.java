@@ -5,10 +5,12 @@
  */
 package io.debezium.pipeline.txmetadata;
 
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import io.debezium.annotation.NotThreadSafe;
 import io.debezium.schema.DataCollectionId;
@@ -28,28 +30,31 @@ import io.debezium.schema.DataCollectionId;
  */
 @NotThreadSafe
 public class TransactionContext {
+    private static final Logger LOGGER = LoggerFactory.getLogger(TransactionContext.class);
 
     private static final String OFFSET_TRANSACTION_ID = TransactionMonitor.DEBEZIUM_TRANSACTION_KEY + "_" + TransactionMonitor.DEBEZIUM_TRANSACTION_ID_KEY;
     private static final String OFFSET_TABLE_COUNT_PREFIX = TransactionMonitor.DEBEZIUM_TRANSACTION_KEY + "_"
             + TransactionMonitor.DEBEZIUM_TRANSACTION_DATA_COLLECTION_ORDER_KEY + "_";
     private static final int OFFSET_TABLE_COUNT_PREFIX_LENGTH = OFFSET_TABLE_COUNT_PREFIX.length();
+    public static final String DEFAULT_PEROBJECTTRANSACTIONCONTEXT_KEY = "";
+    public static final String CISCO_OFFSET_VERSION = "CISCO_OFFSET_VERSION";
 
     private String transactionId = null;
-    private final Map<String, Long> perTableEventCount = new HashMap<>();
-    private final Map<String, Long> viewPerTableEventCount = Collections.unmodifiableMap(perTableEventCount);
-    private long totalEventCount = 0;
+    private final Map<String, PerObjectTransactionContext> perObjectTransactionContexts = new HashMap<>();
+    private PerObjectTransactionContext defaultPerObjectTransactionContext = new PerObjectTransactionContext();
 
     private void reset() {
         transactionId = null;
-        totalEventCount = 0;
-        perTableEventCount.clear();
+        defaultPerObjectTransactionContext.reset();
+        perObjectTransactionContexts.clear();
+        perObjectTransactionContexts.put(DEFAULT_PEROBJECTTRANSACTIONCONTEXT_KEY, defaultPerObjectTransactionContext);
     }
 
     public Map<String, Object> store(Map<String, Object> offset) {
         offset.put(OFFSET_TRANSACTION_ID, transactionId);
-        final String tableCountPrefix = OFFSET_TABLE_COUNT_PREFIX;
-        for (final Entry<String, Long> e : perTableEventCount.entrySet()) {
-            offset.put(tableCountPrefix + e.getKey(), e.getValue());
+        offset.put(CISCO_OFFSET_VERSION, 1);
+        for (final Entry<String, PerObjectTransactionContext> entry : perObjectTransactionContexts.entrySet()) {
+            entry.getValue().store(offset, entry.getKey());
         }
         return offset;
     }
@@ -58,18 +63,42 @@ public class TransactionContext {
     public static TransactionContext load(Map<String, ?> offsets) {
         final Map<String, Object> o = (Map<String, Object>) offsets;
         final TransactionContext context = new TransactionContext();
-
         context.transactionId = (String) o.get(OFFSET_TRANSACTION_ID);
 
-        for (final Entry<String, Object> offset : o.entrySet()) {
-            if (offset.getKey().startsWith(OFFSET_TABLE_COUNT_PREFIX)) {
-                final String dataCollectionId = offset.getKey().substring(OFFSET_TABLE_COUNT_PREFIX_LENGTH);
-                final Long count = (Long) offset.getValue();
-                context.perTableEventCount.put(dataCollectionId, count);
-            }
+        if (offsets.get(CISCO_OFFSET_VERSION) == null) {
+            context.defaultPerObjectTransactionContext = PerObjectTransactionContext.load(offsets);
+            context.getPerObjectTransactionContexts().put(DEFAULT_PEROBJECTTRANSACTIONCONTEXT_KEY, context.defaultPerObjectTransactionContext);
+            LOGGER.debug("Loaded original offset {}", context);
         }
+        else {
+            LOGGER.debug("Loading transaction context from {}", offsets);
+            for (final Entry<String, Object> offset : o.entrySet()) {
+                if (offset.getKey().startsWith(OFFSET_TABLE_COUNT_PREFIX)) {
+                    final String value = offset.getKey().substring(OFFSET_TABLE_COUNT_PREFIX_LENGTH);
+                    String[] splitted = value.split(PerObjectTransactionContext.IDENTITY_ID_SEPARATOR);
+                    final String dataCollectionId = splitted[1];
+                    final String identityId = splitted[0];
+                    final Long count = (Long) offset.getValue();
 
-        context.totalEventCount = context.perTableEventCount.values().stream().mapToLong(x -> x).sum();
+                    PerObjectTransactionContext theContext = context.getPerObjectTransactionContexts().computeIfAbsent(identityId, k -> {
+                        PerObjectTransactionContext perObjectTransactionContext = new PerObjectTransactionContext();
+                        perObjectTransactionContext.beginTransaction(context.transactionId);
+                        return perObjectTransactionContext;
+                    });
+
+                    theContext.perTableEventCount.put(dataCollectionId, count);
+                    theContext.totalEventCount = theContext.perTableEventCount.values().stream().mapToLong(x -> x).sum();
+                }
+            }
+            if (context.getPerObjectTransactionContexts().get(DEFAULT_PEROBJECTTRANSACTIONCONTEXT_KEY) == null) {
+                context.defaultPerObjectTransactionContext.transactionId = context.transactionId;
+                context.getPerObjectTransactionContexts().put(DEFAULT_PEROBJECTTRANSACTIONCONTEXT_KEY, context.defaultPerObjectTransactionContext);
+            }
+            else {
+                context.defaultPerObjectTransactionContext = context.getPerObjectTransactionContexts().get(DEFAULT_PEROBJECTTRANSACTIONCONTEXT_KEY);
+            }
+            LOGGER.debug("Loaded new offset {}", context);
+        }
 
         return context;
     }
@@ -83,33 +112,43 @@ public class TransactionContext {
     }
 
     public long getTotalEventCount() {
+        long totalEventCount = 0;
+        for (PerObjectTransactionContext perObjectTransactionContext : perObjectTransactionContexts.values()) {
+            totalEventCount += perObjectTransactionContext.getTotalEventCount();
+        }
         return totalEventCount;
     }
 
     public void beginTransaction(String txId) {
         reset();
         transactionId = txId;
+        defaultPerObjectTransactionContext.beginTransaction(txId);
     }
 
     public void endTransaction() {
         reset();
     }
 
-    public long event(DataCollectionId source) {
-        totalEventCount++;
-        final String sourceName = source.toString();
-        final long dataCollectionEventOrder = perTableEventCount.getOrDefault(sourceName, 0L).longValue() + 1;
-        perTableEventCount.put(sourceName, Long.valueOf(dataCollectionEventOrder));
-        return dataCollectionEventOrder;
+    public long event(DataCollectionId source, String objectId) {
+        PerObjectTransactionContext perObjectTransactionContext = perObjectTransactionContexts.computeIfAbsent(objectId, k -> {
+            PerObjectTransactionContext transactionContext = new PerObjectTransactionContext();
+            transactionContext.beginTransaction(transactionId);
+            return transactionContext;
+        });
+        return perObjectTransactionContext.event(source);
     }
 
     public Map<String, Long> getPerTableEventCount() {
-        return viewPerTableEventCount;
+        return defaultPerObjectTransactionContext.getPerTableEventCount();
+    }
+
+    public Map<String, PerObjectTransactionContext> getPerObjectTransactionContexts() {
+        return perObjectTransactionContexts;
     }
 
     @Override
     public String toString() {
         return "TransactionContext [currentTransactionId=" + transactionId + ", perTableEventCount="
-                + perTableEventCount + ", totalEventCount=" + totalEventCount + "]";
+                + perObjectTransactionContexts + "]";
     }
 }
