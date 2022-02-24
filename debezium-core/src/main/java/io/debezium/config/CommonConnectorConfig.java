@@ -475,6 +475,13 @@ public abstract class CommonConnectorConfig {
             .withDescription(
                     "The name of the transaction metadata topic. The placeholder ${database.server.name} can be used for referring to the connector's logical name; defaults to ${database.server.name}.transaction.");
 
+    public static final Field TRANSACTION_SPLITTER_CONFIG_LOCATION = Field.create("transaction.splitter.config.location")
+            .withDisplayName("transaction splitter configuration file location")
+            .withType(Type.STRING)
+            .withWidth(Width.SHORT)
+            .withImportance(Importance.LOW)
+            .withDescription("transaction splitter configuration file location.");
+
     protected static final ConfigDefinition CONFIG_DEFINITION = ConfigDefinition.editor()
             .connector(
                     EVENT_PROCESSING_FAILURE_HANDLING_MODE,
@@ -498,7 +505,8 @@ public abstract class CommonConnectorConfig {
                     Heartbeat.HEARTBEAT_INTERVAL,
                     Heartbeat.HEARTBEAT_TOPICS_PREFIX,
                     SIGNAL_DATA_COLLECTION,
-                    TRANSACTION_TOPIC)
+                    TRANSACTION_TOPIC,
+                    TRANSACTION_SPLITTER_CONFIG_LOCATION)
             .create();
 
     private final Configuration config;
@@ -526,6 +534,7 @@ public abstract class CommonConnectorConfig {
     private final String signalingDataCollection;
     private final EnumSet<Operation> skippedOperations;
     private final String transactionTopic;
+    private final String transactionSplitterConfigLocation;
 
     protected CommonConnectorConfig(Configuration config, String logicalName, int defaultSnapshotFetchSize) {
         this.config = config;
@@ -553,6 +562,7 @@ public abstract class CommonConnectorConfig {
         this.signalingDataCollection = config.getString(SIGNAL_DATA_COLLECTION);
         this.skippedOperations = determineSkippedOperations(config);
         this.transactionTopic = config.getString(TRANSACTION_TOPIC).replace("${database.server.name}", logicalName);
+        this.transactionSplitterConfigLocation = config.getString(TRANSACTION_SPLITTER_CONFIG_LOCATION);
     }
 
     private static EnumSet<Envelope.Operation> determineSkippedOperations(Configuration config) {
@@ -656,6 +666,13 @@ public abstract class CommonConnectorConfig {
      */
     public String getTransactionTopic() {
         return transactionTopic;
+    }
+
+    /**
+     * @return transaction splitter configuration file location
+     */
+    public String getTransactionSplitterConfigLocation() {
+        return transactionSplitterConfigLocation;
     }
 
     /**

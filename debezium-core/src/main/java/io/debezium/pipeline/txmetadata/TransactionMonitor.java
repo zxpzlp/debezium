@@ -5,6 +5,8 @@
  */
 package io.debezium.pipeline.txmetadata;
 
+import static io.debezium.pipeline.txmetadata.TransactionContext.DEFAULT_PEROBJECTTRANSACTIONCONTEXT_KEY;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -88,6 +90,7 @@ public class TransactionMonitor {
     private final String topicName;
     private final BlockingConsumer<SourceRecord> sender;
     private final CommonConnectorConfig connectorConfig;
+    private final IdentityUtil identityUtil;
 
     public TransactionMonitor(CommonConnectorConfig connectorConfig, EventMetadataProvider eventMetadataProvider, BlockingConsumer<SourceRecord> sender) {
         Objects.requireNonNull(eventMetadataProvider);
@@ -95,6 +98,7 @@ public class TransactionMonitor {
         this.eventMetadataProvider = eventMetadataProvider;
         this.sender = sender;
         this.connectorConfig = connectorConfig;
+        this.identityUtil = new IdentityUtil(connectorConfig);
     }
 
     public void dataEvent(Partition partition, DataCollectionId source, OffsetContext offset, Object key, Struct value) throws InterruptedException {
@@ -149,14 +153,23 @@ public class TransactionMonitor {
     }
 
     private void transactionEvent(OffsetContext offsetContext, DataCollectionId source, Struct value) {
-        final long dataCollectionEventOrder = offsetContext.getTransactionContext().event(source);
+        String identityId = null;
+        if (identityUtil.isTransactionSplitEnabled()) {
+            identityId = identityUtil.getIdentityId(source.toString(), value);
+        }
+        if (identityId == null) {
+            identityId = DEFAULT_PEROBJECTTRANSACTIONCONTEXT_KEY;
+        }
+
+        final long dataCollectionEventOrder = offsetContext.getTransactionContext().event(source, identityId);
         if (value == null) {
             LOGGER.debug("Event with key {} without value. Cannot enrich source block.");
             return;
         }
+        PerObjectTransactionContext transactionContext = offsetContext.getTransactionContext().getPerObjectTransactionContexts().get(identityId);
         final Struct txStruct = new Struct(TRANSACTION_BLOCK_SCHEMA);
-        txStruct.put(DEBEZIUM_TRANSACTION_ID_KEY, offsetContext.getTransactionContext().getTransactionId());
-        txStruct.put(DEBEZIUM_TRANSACTION_TOTAL_ORDER_KEY, offsetContext.getTransactionContext().getTotalEventCount());
+        txStruct.put(DEBEZIUM_TRANSACTION_ID_KEY, offsetContext.getTransactionContext().getTransactionId() + "-" + identityId);
+        txStruct.put(DEBEZIUM_TRANSACTION_TOTAL_ORDER_KEY, transactionContext.getTotalEventCount());
         txStruct.put(DEBEZIUM_TRANSACTION_DATA_COLLECTION_ORDER_KEY, dataCollectionEventOrder);
         value.put(Envelope.FieldName.TRANSACTION, txStruct);
     }
@@ -173,24 +186,31 @@ public class TransactionMonitor {
     }
 
     private void endTransaction(Partition partition, OffsetContext offsetContext) throws InterruptedException {
-        final Struct key = new Struct(TRANSACTION_KEY_SCHEMA);
-        key.put(DEBEZIUM_TRANSACTION_ID_KEY, offsetContext.getTransactionContext().getTransactionId());
-        final Struct value = new Struct(TRANSACTION_VALUE_SCHEMA);
-        value.put(DEBEZIUM_TRANSACTION_STATUS_KEY, TransactionStatus.END.name());
-        value.put(DEBEZIUM_TRANSACTION_ID_KEY, offsetContext.getTransactionContext().getTransactionId());
-        value.put(DEBEZIUM_TRANSACTION_EVENT_COUNT_KEY, offsetContext.getTransactionContext().getTotalEventCount());
+        Map<String, PerObjectTransactionContext> transactionContextMap = offsetContext.getTransactionContext().getPerObjectTransactionContexts();
 
-        final Set<Entry<String, Long>> perTableEventCount = offsetContext.getTransactionContext().getPerTableEventCount().entrySet();
-        final List<Struct> valuePerTableCount = new ArrayList<>(perTableEventCount.size());
-        for (Map.Entry<String, Long> tableEventCount : perTableEventCount) {
-            final Struct perTable = new Struct(EVENT_COUNT_PER_DATA_COLLECTION_SCHEMA);
-            perTable.put(DEBEZIUM_TRANSACTION_COLLECTION_KEY, tableEventCount.getKey());
-            perTable.put(DEBEZIUM_TRANSACTION_EVENT_COUNT_KEY, tableEventCount.getValue());
-            valuePerTableCount.add(perTable);
+        for (Entry<String, PerObjectTransactionContext> entry : transactionContextMap.entrySet()) {
+            if (entry.getKey().equals(DEFAULT_PEROBJECTTRANSACTIONCONTEXT_KEY) && entry.getValue().totalEventCount == 0) {
+                continue;
+            }
+            final Struct key = new Struct(TRANSACTION_KEY_SCHEMA);
+            key.put(DEBEZIUM_TRANSACTION_ID_KEY, entry.getValue().getTransactionId() + "-" + entry.getKey());
+            final Struct value = new Struct(TRANSACTION_VALUE_SCHEMA);
+            value.put(DEBEZIUM_TRANSACTION_STATUS_KEY, TransactionStatus.END.name());
+            value.put(DEBEZIUM_TRANSACTION_ID_KEY, entry.getValue().getTransactionId() + "-" + entry.getKey());
+            value.put(DEBEZIUM_TRANSACTION_EVENT_COUNT_KEY, entry.getValue().getTotalEventCount());
+
+            final Set<Entry<String, Long>> perTableEventCount = entry.getValue().getPerTableEventCount().entrySet();
+            final List<Struct> valuePerTableCount = new ArrayList<>(perTableEventCount.size());
+            for (Map.Entry<String, Long> tableEventCount : perTableEventCount) {
+                final Struct perTable = new Struct(EVENT_COUNT_PER_DATA_COLLECTION_SCHEMA);
+                perTable.put(DEBEZIUM_TRANSACTION_COLLECTION_KEY, tableEventCount.getKey());
+                perTable.put(DEBEZIUM_TRANSACTION_EVENT_COUNT_KEY, tableEventCount.getValue());
+                valuePerTableCount.add(perTable);
+            }
+            value.put(DEBEZIUM_TRANSACTION_DATA_COLLECTIONS_KEY, valuePerTableCount);
+
+            sender.accept(new SourceRecord(partition.getSourcePartition(), offsetContext.getOffset(),
+                    topicName, null, key.schema(), key, value.schema(), value));
         }
-        value.put(DEBEZIUM_TRANSACTION_DATA_COLLECTIONS_KEY, valuePerTableCount);
-
-        sender.accept(new SourceRecord(partition.getSourcePartition(), offsetContext.getOffset(),
-                topicName, null, key.schema(), key, value.schema(), value));
     }
 }
