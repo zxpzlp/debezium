@@ -157,10 +157,6 @@ public class LogMinerStreamingChangeEventSource implements StreamingChangeEventS
                             initializeRedoLogsForMining(jdbcConnection, true, startScn);
 
                             processor.abandonTransactions(connectorConfig.getLogMiningTransactionRetention());
-
-                            // This needs to be re-calculated because building the data dictionary will force the
-                            // current redo log sequence to be advanced due to a complete log switch of all logs.
-                            currentRedoLogSequences = getCurrentRedoLogSequences();
                         }
 
                         if (context.isRunning()) {
@@ -235,7 +231,7 @@ public class LogMinerStreamingChangeEventSource implements StreamingChangeEventS
                 buildDataDictionary(connection);
             }
             if (!isContinuousMining) {
-                setLogFilesForMining(connection, startScn, archiveLogRetention, archiveLogOnlyMode,
+                currentRedoLogSequences = setLogFilesForMining(connection, startScn, archiveLogRetention, archiveLogOnlyMode,
                         archiveDestinationName, logFileQueryMaxRetries);
             }
         }
@@ -244,7 +240,7 @@ public class LogMinerStreamingChangeEventSource implements StreamingChangeEventS
                 if (OracleConnectorConfig.LogMiningStrategy.CATALOG_IN_REDO.equals(strategy)) {
                     buildDataDictionary(connection);
                 }
-                setLogFilesForMining(connection, startScn, archiveLogRetention, archiveLogOnlyMode,
+                currentRedoLogSequences = setLogFilesForMining(connection, startScn, archiveLogRetention, archiveLogOnlyMode,
                         archiveDestinationName, logFileQueryMaxRetries);
             }
         }
