@@ -209,7 +209,7 @@ public class LogMinerStreamingChangeEventSource implements StreamingChangeEventS
                                 retryAttempts = 1;
                                 startScn = processor.process(partition, startScn, endScn);
                                 streamingMetrics.setCurrentBatchProcessingTime(Duration.between(start, Instant.now()));
-                                captureSessionMemoryStatistics(jdbcConnection);
+                                // captureSessionMemoryStatistics(jdbcConnection);
                             }
                             pauseBetweenMiningSessions();
                         }
