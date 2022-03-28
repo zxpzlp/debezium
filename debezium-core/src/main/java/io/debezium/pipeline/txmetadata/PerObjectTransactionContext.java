@@ -39,20 +39,22 @@ public class PerObjectTransactionContext {
     protected final Map<String, Long> perTableEventCount = new HashMap<>();
     private final Map<String, Long> viewPerTableEventCount = Collections.unmodifiableMap(perTableEventCount);
     protected long totalEventCount = 0;
+    protected Map<String, Object> localOffset = new HashMap<>();
 
     protected void reset() {
         transactionId = null;
         totalEventCount = 0;
         perTableEventCount.clear();
+        localOffset.clear();
     }
 
-    public Map<String, Object> store(Map<String, Object> offset, String identityId) {
-        offset.put(OFFSET_TRANSACTION_ID, transactionId);
-        final String tableCountPrefix = OFFSET_TABLE_COUNT_PREFIX;
-        for (final Entry<String, Long> e : perTableEventCount.entrySet()) {
-            offset.put(tableCountPrefix + identityId + IDENTITY_ID_SEPARATOR + e.getKey(), e.getValue());
-        }
+    public Map<String, Object> store(Map<String, Object> offset) {
+        offset.putAll(localOffset);
         return offset;
+    }
+
+    public Map<String, Object> getLocalOffset() {
+        return localOffset;
     }
 
     @SuppressWarnings("unchecked")
@@ -90,17 +92,19 @@ public class PerObjectTransactionContext {
     public void beginTransaction(String txId) {
         reset();
         transactionId = txId;
+        localOffset.put(OFFSET_TRANSACTION_ID, transactionId);
     }
 
     public void endTransaction() {
         reset();
     }
 
-    public long event(DataCollectionId source) {
+    public long event(DataCollectionId source, String objectId) {
         totalEventCount++;
         final String sourceName = source.toString();
         final long dataCollectionEventOrder = perTableEventCount.getOrDefault(sourceName, 0L).longValue() + 1;
-        perTableEventCount.put(sourceName, Long.valueOf(dataCollectionEventOrder));
+        perTableEventCount.put(sourceName, dataCollectionEventOrder);
+        localOffset.put(OFFSET_TABLE_COUNT_PREFIX + objectId + IDENTITY_ID_SEPARATOR + sourceName, dataCollectionEventOrder);
         return dataCollectionEventOrder;
     }
 
