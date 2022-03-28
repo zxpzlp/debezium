@@ -163,7 +163,7 @@ public class LogMinerStreamingChangeEventSource implements StreamingChangeEventS
                             startMiningSession(jdbcConnection, startScn, endScn);
                             startScn = processor.process(startScn, endScn);
 
-//                            captureSessionMemoryStatistics(jdbcConnection);
+                            // captureSessionMemoryStatistics(jdbcConnection);
 
                             streamingMetrics.setCurrentBatchProcessingTime(Duration.between(start, Instant.now()));
                             pauseBetweenMiningSessions();
