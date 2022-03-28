@@ -42,20 +42,18 @@ public class TransactionContext {
     private String transactionId = null;
     private final Map<String, PerObjectTransactionContext> perObjectTransactionContexts = new HashMap<>();
     private PerObjectTransactionContext defaultPerObjectTransactionContext = new PerObjectTransactionContext();
+    private Map<String, Object> localOffset = new HashMap<>();
 
     private void reset() {
         transactionId = null;
         defaultPerObjectTransactionContext.reset();
         perObjectTransactionContexts.clear();
         perObjectTransactionContexts.put(DEFAULT_PEROBJECTTRANSACTIONCONTEXT_KEY, defaultPerObjectTransactionContext);
+        localOffset.clear();
     }
 
     public Map<String, Object> store(Map<String, Object> offset) {
-        offset.put(OFFSET_TRANSACTION_ID, transactionId);
-        offset.put(CISCO_OFFSET_VERSION, 1);
-        for (final Entry<String, PerObjectTransactionContext> entry : perObjectTransactionContexts.entrySet()) {
-            entry.getValue().store(offset, entry.getKey());
-        }
+        offset.putAll(localOffset);
         return offset;
     }
 
@@ -123,6 +121,8 @@ public class TransactionContext {
         reset();
         transactionId = txId;
         defaultPerObjectTransactionContext.beginTransaction(txId);
+        localOffset.put(OFFSET_TRANSACTION_ID, transactionId);
+        localOffset.put(CISCO_OFFSET_VERSION, 1);
     }
 
     public void endTransaction() {
@@ -135,7 +135,9 @@ public class TransactionContext {
             transactionContext.beginTransaction(transactionId);
             return transactionContext;
         });
-        return perObjectTransactionContext.event(source);
+        long count = perObjectTransactionContext.event(source, objectId);
+        localOffset.putAll(perObjectTransactionContext.getLocalOffset());
+        return count;
     }
 
     public Map<String, Long> getPerTableEventCount() {
