@@ -183,7 +183,7 @@ public class LogMinerStreamingChangeEventSource implements StreamingChangeEventS
                             startScn = processor.process(partition, startScn, endScn);
                             streamingMetrics.setCurrentBatchProcessingTime(Duration.between(start, Instant.now()));
 
-                            captureSessionMemoryStatistics(jdbcConnection);
+                            // captureSessionMemoryStatistics(jdbcConnection);
 
                             pauseBetweenMiningSessions();
                         }
@@ -584,6 +584,16 @@ public class LogMinerStreamingChangeEventSource implements StreamingChangeEventS
                                         startScn,
                                         prevEndScn, prevEndScnTimestamp.get(), currentScn, currentScnTimestamp.get());
                                 return currentScn;
+                            }
+                            else if (streamingMetrics.getLastCapturedDmlCount() == 0) {
+                                Optional<Scn> scn = connection.getTimestampToScn(prevEndScnTimestamp.get().plusSeconds(20));
+                                if (scn.isPresent()) {
+                                    LOGGER.warn(
+                                            "Detected possible SCN gap happened before, using previousScnTimestamp+20seconds as end SCN."
+                                                    + " startSCN {}, prevEndScn {} timestamp {}, current SCN {} timestamp {}.",
+                                            startScn, prevEndScn, prevEndScnTimestamp.get(), currentScn, currentScnTimestamp.get());
+                                    return scn.get();
+                                }
                             }
                         }
                     }
