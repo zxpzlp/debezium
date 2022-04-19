@@ -21,11 +21,20 @@ public class TransactionMessage implements ReplicationMessage {
     private final long transactionId;
     private final Instant commitTime;
     private final Operation operation;
+    private final String originName;
 
     public TransactionMessage(Operation operation, long transactionId, Instant commitTime) {
         this.operation = operation;
         this.transactionId = transactionId;
         this.commitTime = commitTime;
+        this.originName = null;
+    }
+
+    public TransactionMessage(Operation operation, long transactionId, Instant commitTime, String originName) {
+        this.operation = operation;
+        this.transactionId = transactionId;
+        this.commitTime = commitTime;
+        this.originName = originName;
     }
 
     @Override
@@ -68,9 +77,17 @@ public class TransactionMessage implements ReplicationMessage {
         return commitTime;
     }
 
+    public String getOriginName() {
+        return originName;
+    }
+
     @Override
     public String toString() {
-        return "TransactionMessage [transactionId=" + transactionId + ", commitTime=" + commitTime + ", operation="
-                + operation + "]";
+        return "TransactionMessage{" +
+                "transactionId=" + transactionId +
+                ", commitTime=" + commitTime +
+                ", operation=" + operation +
+                ", originName='" + originName + '\'' +
+                '}';
     }
 }

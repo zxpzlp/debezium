@@ -76,6 +76,7 @@ public class PgOutputMessageDecoder extends AbstractMessageDecoder {
      * Will be null for a non-transactional decoding message
      */
     private Long transactionId;
+    private String originName;
 
     public enum MessageType {
         RELATION,
@@ -196,6 +197,9 @@ public class PgOutputMessageDecoder extends AbstractMessageDecoder {
             case DELETE:
                 decodeDelete(buffer, typeRegistry, processor);
                 break;
+            case ORIGIN:
+                handleOriginMessage(buffer);
+                break;
             case TRUNCATE:
                 if (isTruncateEventsIncluded()) {
                     decodeTruncate(buffer, typeRegistry, processor);
@@ -242,11 +246,12 @@ public class PgOutputMessageDecoder extends AbstractMessageDecoder {
         final Lsn lsn = Lsn.valueOf(buffer.getLong()); // LSN
         this.commitTimestamp = PG_EPOCH.plus(buffer.getLong(), ChronoUnit.MICROS);
         this.transactionId = Integer.toUnsignedLong(buffer.getInt());
+        this.originName = null;
         LOGGER.trace("Event: {}", MessageType.BEGIN);
         LOGGER.trace("Final LSN of transaction: {}", lsn);
         LOGGER.trace("Commit timestamp of transaction: {}", commitTimestamp);
         LOGGER.trace("XID of transaction: {}", transactionId);
-        processor.process(new TransactionMessage(Operation.BEGIN, transactionId, commitTimestamp));
+        processor.process(new TransactionMessage(Operation.BEGIN, transactionId, commitTimestamp, originName));
     }
 
     /**
@@ -265,7 +270,23 @@ public class PgOutputMessageDecoder extends AbstractMessageDecoder {
         LOGGER.trace("Commit LSN: {}", lsn);
         LOGGER.trace("End LSN of transaction: {}", endLsn);
         LOGGER.trace("Commit timestamp of transaction: {}", commitTimestamp);
-        processor.process(new TransactionMessage(Operation.COMMIT, transactionId, commitTimestamp));
+        processor.process(new TransactionMessage(Operation.COMMIT, transactionId, commitTimestamp, originName));
+        this.originName = null;
+    }
+
+    /**
+     * Callback handler for the 'O'  replication message.
+     *
+     * @param buffer The replication stream buffer
+     */
+    private void handleOriginMessage(ByteBuffer buffer) {
+        final Lsn lsn = Lsn.valueOf(buffer.getLong()); // LSN
+        originName = readString(buffer);
+        LOGGER.trace("Event: {}", MessageType.ORIGIN);
+        LOGGER.trace("Final LSN of transaction: {}", lsn);
+        LOGGER.trace("Commit timestamp of transaction: {}", commitTimestamp);
+        LOGGER.trace("XID of transaction: {}", transactionId);
+        LOGGER.trace("Origin: {}", originName);
     }
 
     /**

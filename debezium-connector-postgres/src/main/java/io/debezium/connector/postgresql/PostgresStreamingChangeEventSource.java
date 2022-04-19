@@ -21,8 +21,10 @@ import io.debezium.connector.postgresql.connection.LogicalDecodingMessage;
 import io.debezium.connector.postgresql.connection.Lsn;
 import io.debezium.connector.postgresql.connection.PostgresConnection;
 import io.debezium.connector.postgresql.connection.ReplicationConnection;
+import io.debezium.connector.postgresql.connection.ReplicationMessage;
 import io.debezium.connector.postgresql.connection.ReplicationMessage.Operation;
 import io.debezium.connector.postgresql.connection.ReplicationStream;
+import io.debezium.connector.postgresql.connection.TransactionMessage;
 import io.debezium.connector.postgresql.connection.WalPositionLocator;
 import io.debezium.connector.postgresql.spi.Snapshotter;
 import io.debezium.heartbeat.Heartbeat;
@@ -66,6 +68,8 @@ public class PostgresStreamingChangeEventSource implements StreamingChangeEventS
     private final Snapshotter snapshotter;
     private final DelayStrategy pauseNoMessage;
     private final ElapsedTimeStrategy connectionProbeTimer;
+
+    private Transaction transaction;
 
     /**
      * The minimum of (number of event received since the last event sent to Kafka,
@@ -223,15 +227,54 @@ public class PostgresStreamingChangeEventSource implements StreamingChangeEventS
                         return;
                     }
 
-                    offsetContext.updateWalPosition(lsn, lastCompletelyProcessedLsn, message.getCommitTime(), toLong(message.getTransactionId()),
-                            taskContext.getSlotXmin(connection),
-                            null);
                     if (message.getOperation() == Operation.BEGIN) {
-                        dispatcher.dispatchTransactionStartedEvent(partition, toString(message.getTransactionId()), offsetContext);
+                        transaction = new Transaction(message, lsn);
                     }
                     else if (message.getOperation() == Operation.COMMIT) {
-                        commitMessage(partition, offsetContext, lsn);
-                        dispatcher.dispatchTransactionCommittedEvent(partition, offsetContext);
+                        if (transaction == null) {
+                            LOGGER.error("Got transaction commit event {}, LSN {}, but there is no transaction.", message, lsn);
+                        }
+                        else {
+                            if (((TransactionMessage) message).getOriginName() != null) {
+                                LOGGER.debug("Received replicated transaction, skipping.");
+                            }
+                            else if (transaction.getEvents().size() == 0) {
+                                LOGGER.debug("No DML events in transaction, skipping.");
+                            }
+                            else {
+                                offsetContext.updateWalPosition(transaction.getStartLsn(), lastCompletelyProcessedLsn, message.getCommitTime(),
+                                        toLong(message.getTransactionId()),
+                                        taskContext.getSlotXmin(connection),
+                                        null);
+                                dispatcher.dispatchTransactionStartedEvent(partition, toString(message.getTransactionId()), offsetContext);
+
+                                for (Transaction.Pair<Lsn, ReplicationMessage> dmlEvent : transaction.getEvents()) {
+                                    TableId tableId = PostgresSchema.parse(dmlEvent.getValue().getTable());
+                                    Objects.requireNonNull(tableId);
+
+                                    offsetContext.updateWalPosition(dmlEvent.getKey(), dmlEvent.getKey(), message.getCommitTime(),
+                                            toLong(message.getTransactionId()),
+                                            taskContext.getSlotXmin(connection),
+                                            tableId);
+
+                                    dispatcher.dispatchDataChangeEvent(
+                                            partition,
+                                            tableId,
+                                            new PostgresChangeRecordEmitter(
+                                                    partition,
+                                                    offsetContext,
+                                                    clock,
+                                                    connectorConfig,
+                                                    schema,
+                                                    connection,
+                                                    tableId,
+                                                    dmlEvent.getValue()));
+                                }
+
+                                commitMessage(partition, offsetContext, lsn);
+                                dispatcher.dispatchTransactionCommittedEvent(partition, offsetContext);
+                            }
+                        }
                     }
                     maybeWarnAboutGrowingWalBacklog(true);
                 }
@@ -254,30 +297,14 @@ public class PostgresStreamingChangeEventSource implements StreamingChangeEventS
                 }
                 // DML event
                 else {
-                    TableId tableId = null;
                     if (message.getOperation() != Operation.NOOP) {
-                        tableId = PostgresSchema.parse(message.getTable());
-                        Objects.requireNonNull(tableId);
+                        if (transaction == null) {
+                            LOGGER.error("Can't find transaction for DML message  {}, LSN {}", message, lsn);
+                        }
+                        else {
+                            transaction.addEvent(lsn, message);
+                        }
                     }
-
-                    offsetContext.updateWalPosition(lsn, lastCompletelyProcessedLsn, message.getCommitTime(), toLong(message.getTransactionId()),
-                            taskContext.getSlotXmin(connection),
-                            tableId);
-
-                    boolean dispatched = message.getOperation() != Operation.NOOP && dispatcher.dispatchDataChangeEvent(
-                            partition,
-                            tableId,
-                            new PostgresChangeRecordEmitter(
-                                    partition,
-                                    offsetContext,
-                                    clock,
-                                    connectorConfig,
-                                    schema,
-                                    connection,
-                                    tableId,
-                                    message));
-
-                    maybeWarnAboutGrowingWalBacklog(dispatched);
                 }
             });
 
