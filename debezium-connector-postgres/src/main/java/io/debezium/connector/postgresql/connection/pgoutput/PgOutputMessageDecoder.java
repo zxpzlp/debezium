@@ -297,8 +297,8 @@ public class PgOutputMessageDecoder extends AbstractMessageDecoder {
      */
     private void handleRelationMessage(ByteBuffer buffer, TypeRegistry typeRegistry) throws SQLException {
         int relationId = buffer.getInt();
-        String schemaName = readString(buffer);
-        String tableName = readString(buffer);
+        String schemaName = readString(buffer).toUpperCase();
+        String tableName = readString(buffer).toUpperCase();
         int replicaIdentityId = buffer.get();
         short columnCount = buffer.getShort();
 
@@ -311,7 +311,7 @@ public class PgOutputMessageDecoder extends AbstractMessageDecoder {
         List<String> primaryKeyColumns;
 
         final DatabaseMetaData databaseMetadata = connection.connection().getMetaData();
-        final TableId tableId = new TableId(null, schemaName, tableName);
+        final TableId tableId = new TableId(null, schemaName.toLowerCase(), tableName.toLowerCase());
 
         final List<io.debezium.relational.Column> readColumns = getTableColumnsFromDatabase(connection, databaseMetadata, tableId);
         columnDefaults = readColumns.stream()
@@ -329,7 +329,7 @@ public class PgOutputMessageDecoder extends AbstractMessageDecoder {
         Set<String> columnNames = new HashSet<>();
         for (short i = 0; i < columnCount; ++i) {
             byte flags = buffer.get();
-            String columnName = Strings.unquoteIdentifierPart(readString(buffer));
+            String columnName = Strings.unquoteIdentifierPart(readString(buffer)).toUpperCase();
             int columnType = buffer.getInt();
             int attypmod = buffer.getInt();
 

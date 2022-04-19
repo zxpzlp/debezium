@@ -529,7 +529,7 @@ public class PostgresConnection extends JdbcConnection {
 
     private Optional<ColumnEditor> doReadTableColumn(ResultSet columnMetadata, TableId tableId, Tables.ColumnNameFilter columnFilter)
             throws SQLException {
-        final String columnName = columnMetadata.getString(4);
+        final String columnName = columnMetadata.getString(4).toUpperCase();
         if (columnFilter == null || columnFilter.matches(tableId.catalog(), tableId.schema(), tableId.table(), columnName)) {
             final ColumnEditor column = Column.editor().name(columnName);
             column.type(columnMetadata.getString(6));

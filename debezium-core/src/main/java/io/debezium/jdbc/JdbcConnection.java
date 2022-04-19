@@ -1309,7 +1309,7 @@ public class JdbcConnection implements AutoCloseable {
         final List<String> pkColumnNames = new ArrayList<>();
         try (ResultSet rs = metadata.getPrimaryKeys(id.catalog(), id.schema(), id.table())) {
             while (rs.next()) {
-                String columnName = rs.getString(4);
+                String columnName = rs.getString(4).toUpperCase();
                 int columnIndex = rs.getInt(5);
                 Collect.set(pkColumnNames, columnIndex - 1, columnName, null);
             }
@@ -1323,7 +1323,7 @@ public class JdbcConnection implements AutoCloseable {
             String firstIndexName = null;
             while (rs.next()) {
                 final String indexName = rs.getString(6);
-                final String columnName = rs.getString(9);
+                final String columnName = rs.getString(9).toUpperCase();
                 final int columnIndex = rs.getInt(8);
                 if (firstIndexName == null) {
                     firstIndexName = indexName;
