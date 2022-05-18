@@ -79,6 +79,7 @@ public class OracleStreamingChangeEventSourceMetrics extends DefaultStreamingCha
     private final AtomicLong activeTransactions = new AtomicLong();
     private final AtomicLong rolledBackTransactions = new AtomicLong();
     private final AtomicLong committedTransactions = new AtomicLong();
+    private final AtomicLong oversizedTransactions = new AtomicLong();
     private final AtomicReference<Set<String>> abandonedTransactionIds = new AtomicReference<>();
     private final AtomicReference<Set<String>> rolledBackTransactionIds = new AtomicReference<>();
     private final AtomicLong registeredDmlCount = new AtomicLong();
@@ -196,6 +197,7 @@ public class OracleStreamingChangeEventSourceMetrics extends DefaultStreamingCha
         activeTransactions.set(0);
         rolledBackTransactions.set(0);
         committedTransactions.set(0);
+        oversizedTransactions.set(0);
         registeredDmlCount.set(0);
         committedDmlCount.set(0);
         abandonedTransactionIds.set(new HashSet<>());
@@ -515,6 +517,11 @@ public class OracleStreamingChangeEventSourceMetrics extends DefaultStreamingCha
     }
 
     @Override
+    public long getNumberOfOversizedTransactions() {
+        return oversizedTransactions.get();
+    }
+
+    @Override
     public long getCommitThroughput() {
         long timeSpent = Duration.between(startTime, clock.instant()).toMillis();
         return committedTransactions.get() * MILLIS_PER_SECOND / (timeSpent != 0 ? timeSpent : 1);
@@ -637,6 +644,10 @@ public class OracleStreamingChangeEventSourceMetrics extends DefaultStreamingCha
 
     public void incrementCommittedTransactions() {
         committedTransactions.incrementAndGet();
+    }
+
+    public void incrementOversizedTransactions() {
+        oversizedTransactions.incrementAndGet();
     }
 
     public void incrementRegisteredDmlCount() {
@@ -784,6 +795,7 @@ public class OracleStreamingChangeEventSourceMetrics extends DefaultStreamingCha
                 ", maxCommitDuration=" + maxCommitDuration +
                 ", activeTransactions=" + activeTransactions.get() +
                 ", rolledBackTransactions=" + rolledBackTransactions.get() +
+                ", oversizedTransactions=" + oversizedTransactions.get() +
                 ", committedTransactions=" + committedTransactions.get() +
                 ", abandonedTransactionIds=" + abandonedTransactionIds.get() +
                 ", rolledbackTransactionIds=" + rolledBackTransactionIds.get() +
