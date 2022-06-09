@@ -140,6 +140,26 @@ public final class TableId implements DataCollectionId, Comparable<TableId> {
         return tableName;
     }
 
+    public String transformedTable() {
+        return transformPostgresPartitionTableName(tableName);
+    }
+
+    public static String transformPostgresPartitionTableName(String tableName) {
+        if (tableName == null) {
+            return tableName;
+        }
+        if (tableName.contains("CHANGE_NUMBERS")) {
+            return "CHANGE_NUMBERS";
+        }
+        else if (tableName.contains("USER_MULTIVALUED_ATTRIBUTES")) {
+            return "USER_MULTIVALUED_ATTRIBUTES";
+        }
+        else if (tableName.contains("USERS") && !tableName.contains("USERS_DELETED")) {
+            return "USERS";
+        }
+        return tableName;
+    }
+
     @Override
     public String identifier() {
         return id;

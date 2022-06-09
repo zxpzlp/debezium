@@ -18,6 +18,6 @@ public class PostgresTopicSelector {
 
     public static TopicSelector<TableId> create(PostgresConnectorConfig connectorConfig) {
         return TopicSelector.defaultSelector(connectorConfig,
-                (id, prefix, delimiter) -> String.join(delimiter, prefix, id.schema(), id.table()));
+                (id, prefix, delimiter) -> String.join(delimiter, prefix, id.schema(), id.transformedTable()));
     }
 }

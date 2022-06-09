@@ -21,6 +21,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.debezium.config.CommonConnectorConfig;
+import io.debezium.relational.TableId;
 import io.debezium.util.Strings;
 
 public class IdentityUtil {
@@ -94,13 +95,13 @@ public class IdentityUtil {
     }
 
     private String getTableName(String dataCollectionName) {
+        String tableName = dataCollectionName;
         int index = dataCollectionName.lastIndexOf(".");
         if (index >= 0) {
-            return dataCollectionName.substring(index + 1);
+            tableName = dataCollectionName.substring(index + 1);
         }
-        else {
-            return dataCollectionName;
-        }
+
+        return TableId.transformPostgresPartitionTableName(tableName);
     }
 
     private String getColumnValue(Struct value, String column) {

@@ -175,21 +175,21 @@ public class TableSchemaBuilder {
     private String tableSchemaName(TableId tableId) {
         if (Strings.isNullOrEmpty(tableId.catalog())) {
             if (Strings.isNullOrEmpty(tableId.schema())) {
-                return tableId.table();
+                return tableId.transformedTable();
             }
             else {
-                return tableId.schema() + "." + tableId.table();
+                return tableId.schema() + "." + tableId.transformedTable();
             }
         }
         else if (Strings.isNullOrEmpty(tableId.schema())) {
-            return tableId.catalog() + "." + tableId.table();
+            return tableId.catalog() + "." + tableId.transformedTable();
         }
         else if (multiPartitionMode) {
-            return tableId.catalog() + "." + tableId.schema() + "." + tableId.table();
+            return tableId.catalog() + "." + tableId.schema() + "." + tableId.transformedTable();
         }
         // When both catalog and schema is present then only schema is used
         else {
-            return tableId.schema() + "." + tableId.table();
+            return tableId.schema() + "." + tableId.transformedTable();
         }
     }
 
