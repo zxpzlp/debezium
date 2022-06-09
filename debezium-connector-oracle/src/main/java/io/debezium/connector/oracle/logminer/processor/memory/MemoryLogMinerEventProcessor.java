@@ -17,6 +17,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 
+import io.debezium.pipeline.txmetadata.IdentityUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -57,6 +58,8 @@ public class MemoryLogMinerEventProcessor extends AbstractLogMinerEventProcessor
      * Cache of transactions, keyed based on the transaction's unique identifier
      */
     private final Map<String, MemoryTransaction> transactionCache = new HashMap<>();
+    private long activeEventCount = 0;
+
     /**
      * Cache of processed transactions (committed or rolled back), keyed based on the transaction's unique identifier.
      */
@@ -157,6 +160,7 @@ public class MemoryLogMinerEventProcessor extends AbstractLogMinerEventProcessor
                         }
                     }
 
+                    updateActiveEventsCount();
                     // Update the oldest scn metric are transaction abandonment
                     smallestScn = getTransactionCacheMinimumScn();
                     metrics.setOldestScn(smallestScn.isNull() ? Scn.valueOf(-1) : smallestScn);
@@ -180,7 +184,9 @@ public class MemoryLogMinerEventProcessor extends AbstractLogMinerEventProcessor
 
     @Override
     protected MemoryTransaction getAndRemoveTransactionFromCache(String transactionId) {
-        return getTransactionCache().remove(transactionId);
+        MemoryTransaction result = getTransactionCache().remove(transactionId);
+        updateActiveEventsCount();
+        return result;
     }
 
     @Override
@@ -206,6 +212,7 @@ public class MemoryLogMinerEventProcessor extends AbstractLogMinerEventProcessor
         transactionCache.remove(transactionId);
         abandonedTransactionsCache.remove(transactionId);
         recentlyProcessedTransactionsCache.put(transactionId, rollbackScn);
+        updateActiveEventsCount();
     }
 
     @Override
@@ -219,7 +226,7 @@ public class MemoryLogMinerEventProcessor extends AbstractLogMinerEventProcessor
     @Override
     protected void addToTransaction(String transactionId, LogMinerEventRow row, Supplier<LogMinerEvent> eventSupplier) {
         if (abandonedTransactionsCache.contains(transactionId)) {
-            LOGGER.warn("Event for abandoned transaction {}, skipped.", transactionId);
+            LOGGER.warn("Event for abandoned transaction {} table={} eventType={}", transactionId, row.getTableName(), row.getEventType());
             return;
         }
         if (!isRecentlyProcessed(transactionId)) {
@@ -243,10 +250,31 @@ public class MemoryLogMinerEventProcessor extends AbstractLogMinerEventProcessor
                 // Add new event at eventId offset
                 LOGGER.trace("Transaction {}, adding event reference at index {}", transactionId, eventId);
                 transaction.getEvents().add(eventSupplier.get());
+                activeEventCount++;
+                metrics.setActiveEvents(activeEventCount);
                 metrics.calculateLagMetrics(row.getChangeTime());
             }
 
             metrics.setActiveTransactions(getTransactionCache().size());
+
+            if (getConfig().getLogMiningBufferTotalActiveEventsThreshold() > 0
+                    && activeEventCount > getConfig().getLogMiningBufferTotalActiveEventsThreshold()) {
+                LOGGER.error("Active event count {} > (threshold){}",
+                        activeEventCount, getConfig().getLogMiningBufferTotalActiveEventsThreshold());
+                MemoryTransaction largestTransaction = null;
+                for (Map.Entry<String, MemoryTransaction> entry : transactionCache.entrySet()) {
+                    if (largestTransaction == null || entry.getValue().getEvents().size() > largestTransaction.getEvents().size()) {
+                        largestTransaction = entry.getValue();
+                    }
+                }
+                if (largestTransaction != null) {
+                    LOGGER.error("Active event count {} is oversized. Abandon largest transaction {} size={}",
+                            activeEventCount, largestTransaction.getTransactionId(), largestTransaction.getEvents().size());
+                    getAndRemoveTransactionFromCache(largestTransaction.getTransactionId()).getEvents().clear();
+                    abandonedTransactionsCache.add(transactionId);
+                    metrics.incrementAbandonedTransactionsDueToSize();
+                }
+            }
         }
         else if (!getConfig().isLobEnabled()) {
             // Explicitly only log this warning when LobEnabled is false because its commonplace for a
@@ -342,5 +370,10 @@ public class MemoryLogMinerEventProcessor extends AbstractLogMinerEventProcessor
                 .map(MemoryTransaction::getStartScn)
                 .min(Scn::compareTo)
                 .orElse(Scn.NULL);
+    }
+
+    private void updateActiveEventsCount() {
+        activeEventCount = transactionCache.values().stream().mapToLong(MemoryTransaction::getNumberOfEvents).sum();
+        metrics.setActiveEvents(activeEventCount);
     }
 }
