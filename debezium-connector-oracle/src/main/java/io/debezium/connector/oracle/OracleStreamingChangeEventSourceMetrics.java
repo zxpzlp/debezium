@@ -77,9 +77,11 @@ public class OracleStreamingChangeEventSourceMetrics extends DefaultStreamingCha
     private final AtomicReference<Duration> lastCommitDuration = new AtomicReference<>();
     private final AtomicReference<Duration> maxCommitDuration = new AtomicReference<>();
     private final AtomicLong activeTransactions = new AtomicLong();
+    private final AtomicLong activeEvents = new AtomicLong();
     private final AtomicLong rolledBackTransactions = new AtomicLong();
     private final AtomicLong committedTransactions = new AtomicLong();
     private final AtomicLong oversizedTransactions = new AtomicLong();
+    private final AtomicLong abandonedTransactionsDueToSize = new AtomicLong();
     private final AtomicReference<Set<String>> abandonedTransactionIds = new AtomicReference<>();
     private final AtomicReference<Set<String>> rolledBackTransactionIds = new AtomicReference<>();
     private final AtomicLong registeredDmlCount = new AtomicLong();
@@ -195,9 +197,11 @@ public class OracleStreamingChangeEventSourceMetrics extends DefaultStreamingCha
         lastCommitDuration.set(Duration.ZERO);
         maxCommitDuration.set(Duration.ZERO);
         activeTransactions.set(0);
+        activeEvents.set(0);
         rolledBackTransactions.set(0);
         committedTransactions.set(0);
         oversizedTransactions.set(0);
+        abandonedTransactionsDueToSize.set(0);
         registeredDmlCount.set(0);
         committedDmlCount.set(0);
         abandonedTransactionIds.set(new HashSet<>());
@@ -507,6 +511,11 @@ public class OracleStreamingChangeEventSourceMetrics extends DefaultStreamingCha
     }
 
     @Override
+    public long getNumberOfActiveEvents() {
+        return activeEvents.get();
+    }
+
+    @Override
     public long getNumberOfRolledBackTransactions() {
         return rolledBackTransactions.get();
     }
@@ -519,6 +528,11 @@ public class OracleStreamingChangeEventSourceMetrics extends DefaultStreamingCha
     @Override
     public long getNumberOfOversizedTransactions() {
         return oversizedTransactions.get();
+    }
+
+    @Override
+    public long getNumberOfAbandonedTransactionsDueToSize() {
+        return abandonedTransactionsDueToSize.get();
     }
 
     @Override
@@ -638,6 +652,10 @@ public class OracleStreamingChangeEventSourceMetrics extends DefaultStreamingCha
         activeTransactions.set(activeTransactionCount);
     }
 
+    public void setActiveEvents(long activeEventCount) {
+        activeEvents.set(activeEventCount);
+    }
+
     public void incrementRolledBackTransactions() {
         rolledBackTransactions.incrementAndGet();
     }
@@ -648,6 +666,10 @@ public class OracleStreamingChangeEventSourceMetrics extends DefaultStreamingCha
 
     public void incrementOversizedTransactions() {
         oversizedTransactions.incrementAndGet();
+    }
+
+    public void incrementAbandonedTransactionsDueToSize() {
+        abandonedTransactionsDueToSize.incrementAndGet();
     }
 
     public void incrementRegisteredDmlCount() {
@@ -794,8 +816,10 @@ public class OracleStreamingChangeEventSourceMetrics extends DefaultStreamingCha
                 ", lastCommitDuration=" + lastCommitDuration +
                 ", maxCommitDuration=" + maxCommitDuration +
                 ", activeTransactions=" + activeTransactions.get() +
+                ", activeEvents=" + activeEvents.get() +
                 ", rolledBackTransactions=" + rolledBackTransactions.get() +
                 ", oversizedTransactions=" + oversizedTransactions.get() +
+                ", abandonedTransactionsDueToSize=" + abandonedTransactionsDueToSize.get() +
                 ", committedTransactions=" + committedTransactions.get() +
                 ", abandonedTransactionIds=" + abandonedTransactionIds.get() +
                 ", rolledbackTransactionIds=" + rolledBackTransactionIds.get() +
