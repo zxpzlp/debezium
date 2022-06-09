@@ -202,6 +202,11 @@ public interface OracleStreamingChangeEventSourceMetricsMXBean extends Streaming
     long getNumberOfActiveTransactions();
 
     /**
+     * @return number of current active events in the transaction buffer
+     */
+    long getNumberOfActiveEvents();
+
+    /**
      * @return the number of committed transactions in the transaction buffer
      */
     long getNumberOfCommittedTransactions();
@@ -215,6 +220,11 @@ public interface OracleStreamingChangeEventSourceMetricsMXBean extends Streaming
      * @return the number of abandoned transactions because of number of events oversized
      */
     long getNumberOfOversizedTransactions();
+
+    /**
+     * @return the number of abandoned transactions because of active events size concern
+     */
+    long getNumberOfAbandonedTransactionsDueToSize();
 
     /**
      * @return average number of committed transactions per second in the transaction buffer

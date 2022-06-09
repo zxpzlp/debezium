@@ -66,6 +66,7 @@ public class OracleConnectorConfig extends HistorizedRelationalDatabaseConnector
     protected final static int DEFAULT_SCN_GAP_TIME_INTERVAL = 20_000;
 
     protected final static int DEFAULT_TRANSACTION_EVENTS_THRESHOLD = 1_000_000;
+    protected final static int DEFAULT_TOTAL_ACTIVE_EVENTS_THRESHOLD = 0;
 
     protected final static Duration MAX_SLEEP_TIME = Duration.ofMillis(3_000);
     protected final static Duration DEFAULT_SLEEP_TIME = Duration.ofMillis(1_000);
@@ -362,6 +363,14 @@ public class OracleConnectorConfig extends HistorizedRelationalDatabaseConnector
             .withDefault(DEFAULT_TRANSACTION_EVENTS_THRESHOLD)
             .withDescription("The transaction events threshold when use log.mining.buffer.type='memory'.");
 
+    public static final Field LOG_MINING_BUFFER_TOTAL_ACTIVE_EVENTS_THRESHOLD = Field.create("log.mining.buffer.total.active.events.threshold")
+            .withDisplayName("Total active events threshold when use log.mining.buffer.type='memory'.")
+            .withType(Type.LONG)
+            .withWidth(Width.SHORT)
+            .withImportance(Importance.LOW)
+            .withDefault(DEFAULT_TOTAL_ACTIVE_EVENTS_THRESHOLD)
+            .withDescription("Total active events threshold when use log.mining.buffer.type='memory'.");
+
     @Deprecated
     public static final Field LOG_MINING_BUFFER_LOCATION = Field.create("log.mining.buffer.location")
             .withDisplayName("Location where Infinispan stores buffer caches")
@@ -573,6 +582,7 @@ public class OracleConnectorConfig extends HistorizedRelationalDatabaseConnector
     private final String logMiningArchiveDestinationName;
     private final LogMiningBufferType logMiningBufferType;
     private final long logMiningBufferMemoryTransactionEventsThreshold;
+    private final long logMiningBufferTotalActiveEventsThreshold;
     private final boolean logMiningBufferDropOnStop;
     private final int logMiningScnGapDetectionGapSizeMin;
     private final int logMiningScnGapDetectionTimeIntervalMaxMs;
@@ -619,6 +629,7 @@ public class OracleConnectorConfig extends HistorizedRelationalDatabaseConnector
         this.logMiningArchiveDestinationName = config.getString(LOG_MINING_ARCHIVE_DESTINATION_NAME);
         this.logMiningBufferType = LogMiningBufferType.parse(config.getString(LOG_MINING_BUFFER_TYPE));
         this.logMiningBufferMemoryTransactionEventsThreshold = config.getLong(LOG_MINING_BUFFER_MEMORY_TRANSACTION_EVENTS_THRESHOLD);
+        this.logMiningBufferTotalActiveEventsThreshold = config.getLong(LOG_MINING_BUFFER_TOTAL_ACTIVE_EVENTS_THRESHOLD);
         this.logMiningBufferDropOnStop = config.getBoolean(LOG_MINING_BUFFER_DROP_ON_STOP);
         this.archiveLogOnlyScnPollTime = Duration.ofMillis(config.getInteger(LOG_MINING_ARCHIVE_LOG_ONLY_SCN_POLL_INTERVAL_MS));
         this.logMiningScnGapDetectionGapSizeMin = config.getInteger(LOG_MINING_SCN_GAP_DETECTION_GAP_SIZE_MIN);
@@ -1368,6 +1379,10 @@ public class OracleConnectorConfig extends HistorizedRelationalDatabaseConnector
      */
     public long getLogMiningBufferMemoryTransactionEventsThreshold() {
         return logMiningBufferMemoryTransactionEventsThreshold;
+    }
+
+    public long getLogMiningBufferTotalActiveEventsThreshold() {
+        return logMiningBufferTotalActiveEventsThreshold;
     }
 
     /**
