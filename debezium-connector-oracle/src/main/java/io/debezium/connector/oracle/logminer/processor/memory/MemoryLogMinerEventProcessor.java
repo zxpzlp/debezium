@@ -12,12 +12,12 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 
-import io.debezium.pipeline.txmetadata.IdentityUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,12 +30,14 @@ import io.debezium.connector.oracle.OracleStreamingChangeEventSourceMetrics;
 import io.debezium.connector.oracle.Scn;
 import io.debezium.connector.oracle.logminer.LogMinerQueryBuilder;
 import io.debezium.connector.oracle.logminer.SqlUtils;
+import io.debezium.connector.oracle.logminer.events.DmlEvent;
 import io.debezium.connector.oracle.logminer.events.LogMinerEvent;
 import io.debezium.connector.oracle.logminer.events.LogMinerEventRow;
 import io.debezium.connector.oracle.logminer.processor.AbstractLogMinerEventProcessor;
 import io.debezium.connector.oracle.logminer.processor.LogMinerEventProcessor;
 import io.debezium.pipeline.EventDispatcher;
 import io.debezium.pipeline.source.spi.ChangeEventSource.ChangeEventSourceContext;
+import io.debezium.pipeline.txmetadata.IdentityUtil;
 import io.debezium.relational.TableId;
 
 /**
@@ -66,6 +68,7 @@ public class MemoryLogMinerEventProcessor extends AbstractLogMinerEventProcessor
     private final Map<String, Scn> recentlyProcessedTransactionsCache = new HashMap<>();
     private final Set<Scn> schemaChangesCache = new HashSet<>();
     private final Set<String> abandonedTransactionsCache = new HashSet<>();
+    private final IdentityUtil identityUtil;
 
     public MemoryLogMinerEventProcessor(ChangeEventSourceContext context,
                                         OracleConnectorConfig connectorConfig,
@@ -81,6 +84,7 @@ public class MemoryLogMinerEventProcessor extends AbstractLogMinerEventProcessor
         this.partition = partition;
         this.offsetContext = offsetContext;
         this.metrics = metrics;
+        this.identityUtil = new IdentityUtil(connectorConfig);
     }
 
     @Override
@@ -202,7 +206,7 @@ public class MemoryLogMinerEventProcessor extends AbstractLogMinerEventProcessor
     @Override
     protected void addToTransaction(String transactionId, LogMinerEventRow row, Supplier<LogMinerEvent> eventSupplier) {
         if (abandonedTransactionsCache.contains(transactionId)) {
-            LOGGER.warn("Event for abandoned transaction {} table={} eventType={}", transactionId, row.getTableName(), row.getEventType());
+            logAbandonIdentity(eventSupplier.get());
             return;
         }
         if (!isRecentlyProcessed(transactionId)) {
@@ -214,9 +218,11 @@ public class MemoryLogMinerEventProcessor extends AbstractLogMinerEventProcessor
             }
 
             if (transaction.getEvents().size() >= getConfig().getLogMiningBufferMemoryTransactionEventsThreshold()) {
-                LOGGER.error("Transaction {} is oversized. Abandon it.", transactionId);
+                LOGGER.error("Abandon oversized transaction {}", transactionId);
                 // Discard the transaction from TransactionCache and to make it releasable.
-                getAndRemoveTransactionFromCache(transactionId).getEvents().clear();
+                List<LogMinerEvent> events = getAndRemoveTransactionFromCache(transactionId).getEvents();
+                events.forEach(this::logAbandonIdentity);
+                events.clear();
                 abandonedTransactionsCache.add(transactionId);
                 metrics.incrementOversizedTransactions();
                 return;
@@ -244,8 +250,8 @@ public class MemoryLogMinerEventProcessor extends AbstractLogMinerEventProcessor
                     }
                 }
                 if (largestTransaction != null) {
-                    LOGGER.error("Active event count {} is oversized. Abandon largest transaction {} size={}",
-                            activeEventCount, largestTransaction.getTransactionId(), largestTransaction.getEvents().size());
+                    LOGGER.error("Abandon largest transaction {} current_size={}",
+                            largestTransaction.getTransactionId(), largestTransaction.getEvents().size());
                     getAndRemoveTransactionFromCache(largestTransaction.getTransactionId()).getEvents().clear();
                     abandonedTransactionsCache.add(transactionId);
                     metrics.incrementAbandonedTransactionsDueToSize();
@@ -254,6 +260,35 @@ public class MemoryLogMinerEventProcessor extends AbstractLogMinerEventProcessor
         }
         else {
             LOGGER.warn("Event for transaction {} has already been processed, skipped.", transactionId);
+        }
+    }
+
+    private void logAbandonIdentity(LogMinerEvent event) {
+        try {
+            if (event instanceof DmlEvent) {
+                DmlEvent dmlEvent = (DmlEvent) event;
+                Object[] newValues = dmlEvent.getDmlEntry().getNewValues();
+                if (newValues == null || newValues.length == 0) {
+                    return;
+                }
+
+                String tableName = dmlEvent.getTableId().table();
+                if (IdentityUtil.CHANGE_NUMBERS_TABLE.equalsIgnoreCase(tableName)) {
+                    final StringBuilder sb = new StringBuilder();
+                    for (Object obj : newValues) {
+                        sb.append(obj).append(" ");
+                    }
+                    LOGGER.warn("Abandon CHANGE_NUMBERS message due to oversized transaction. {}", sb);
+                    return;
+                }
+                Integer idIndex = identityUtil.getIdIndex(tableName);
+                if (idIndex == null) {
+                    return;
+                }
+                LOGGER.warn("Abandon event id={}, eventType={}", newValues[idIndex], event.getEventType());
+            }
+        } catch (Exception e) {
+            LOGGER.warn("Logging error", e);
         }
     }
 

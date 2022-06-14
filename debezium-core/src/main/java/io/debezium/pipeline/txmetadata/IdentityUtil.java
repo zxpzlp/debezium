@@ -27,8 +27,9 @@ public class IdentityUtil {
     private static final Logger LOGGER = LoggerFactory.getLogger(IdentityUtil.class);
     public static CommonConnectorConfig commonConnectorConfig;
 
-    public static final String CHANGE_NUMBERS_TALBE = "CHANGE_NUMBERS";
+    public static final String CHANGE_NUMBERS_TABLE = "CHANGE_NUMBERS";
     private Map<String, String> tableIdentityIdColumn;
+    private Map<String, Integer> tableIdentityIdIndex;
     private Set<String> entityTypes;
 
     public IdentityUtil(CommonConnectorConfig connectorConfig) {
@@ -37,22 +38,23 @@ public class IdentityUtil {
         if (!Strings.isNullOrBlank(transactionSplitterConfigLocation)) {
             LOGGER.info("Transaction splitter configuration file {}", transactionSplitterConfigLocation);
             tableIdentityIdColumn = new HashMap<>();
+            tableIdentityIdIndex = new HashMap<>();
             ObjectMapper mapper = new ObjectMapper();
             try {
                 JsonNode result = mapper.readTree(Paths.get(transactionSplitterConfigLocation).toFile());
                 List<JsonNode> tablesNodes = result.findValues("tables");
 
                 for (JsonNode tables : tablesNodes) {
-                    Iterator<JsonNode> ite = tables.iterator();
-                    while (ite.hasNext()) {
-                        JsonNode table = ite.next();
+                    for (JsonNode table : tables) {
                         String key = table.get("tableName").asText();
                         String value = table.get("idColumn").asText();
+                        Integer index = table.get("idIndex").asInt();
                         tableIdentityIdColumn.put(key, value);
+                        tableIdentityIdIndex.put(key, index);
                     }
                 }
 
-                tableIdentityIdColumn.put(CHANGE_NUMBERS_TALBE, "ENTITY_ID");
+                tableIdentityIdColumn.put(CHANGE_NUMBERS_TABLE, "ENTITY_ID");
 
                 entityTypes = new HashSet<>();
                 List<JsonNode> entityNodes = result.findValues("entityConfigs");
@@ -109,5 +111,9 @@ public class IdentityUtil {
             table = value.getStruct("before");
         }
         return table != null ? table.getString(column) : null;
+    }
+
+    public Integer getIdIndex(String tableName) {
+        return this.tableIdentityIdIndex.get(tableName);
     }
 }
