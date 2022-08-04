@@ -672,9 +672,12 @@ public class LogMinerStreamingChangeEventSource implements StreamingChangeEventS
                                 if (scn.isPresent()) {
                                     LOGGER.warn(
                                             "Detected possible SCN gap happened before, using previousScnTimestamp+20seconds as end SCN."
-                                                    + " startSCN {}, prevEndScn {} timestamp {}, current SCN {} timestamp {}.",
-                                            startScn, prevEndScn, prevEndScnTimestamp.get(), currentScn, currentScnTimestamp.get());
-                                    return scn.get();
+                                                    + " startSCN {}, prevEndScn {} timestamp {}, current SCN {} timestamp {} plusSCN {}.",
+                                            startScn, prevEndScn, prevEndScnTimestamp.get(), currentScn, currentScnTimestamp.get(), scn.get());
+                                    if (scn.get().compareTo(prevEndScn) > 0) {
+                                        return scn.get();
+                                    }
+                                    LOGGER.warn("Newer timestamp SCN is smaller than prevEndScn. scn={}, prevEndScn={}", scn.get(), prevEndScn);
                                 }
                             }
                         }
