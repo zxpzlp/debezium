@@ -230,7 +230,7 @@ public class MemoryLogMinerEventProcessor extends AbstractLogMinerEventProcessor
     @Override
     protected void addToTransaction(String transactionId, LogMinerEventRow row, Supplier<LogMinerEvent> eventSupplier) {
         if (abandonedTransactionsCache.contains(transactionId)) {
-            logAbandonIdentity(eventSupplier.get());
+            logAbandonIdentity(transactionId, eventSupplier.get());
             return;
         }
         if (!isRecentlyProcessed(transactionId)) {
@@ -245,7 +245,7 @@ public class MemoryLogMinerEventProcessor extends AbstractLogMinerEventProcessor
                 LOGGER.error("Abandon oversized transaction {}", transactionId);
                 // Discard the transaction from TransactionCache and to make it releasable.
                 List<LogMinerEvent> events = getAndRemoveTransactionFromCache(transactionId).getEvents();
-                events.forEach(this::logAbandonIdentity);
+                events.forEach(event -> logAbandonIdentity(transactionId, event));
                 events.clear();
                 abandonedTransactionsCache.add(transactionId);
                 metrics.incrementOversizedTransactions();
@@ -290,7 +290,7 @@ public class MemoryLogMinerEventProcessor extends AbstractLogMinerEventProcessor
         }
     }
 
-    private void logAbandonIdentity(LogMinerEvent event) {
+    private void logAbandonIdentity(String transactionId, LogMinerEvent event) {
         try {
             if (event instanceof DmlEvent) {
                 DmlEvent dmlEvent = (DmlEvent) event;
@@ -305,7 +305,7 @@ public class MemoryLogMinerEventProcessor extends AbstractLogMinerEventProcessor
                     for (Object obj : newValues) {
                         sb.append(obj).append(" ");
                     }
-                    LOGGER.warn("Abandon CHANGE_NUMBERS message due to oversized transaction. {}", sb);
+                    LOGGER.warn("Abandon CHANGE_NUMBERS message due to oversized transaction {}. {}", transactionId, sb);
                     return;
                 }
                 Integer idIndex = identityUtil.getIdIndex(tableName);
