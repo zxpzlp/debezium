@@ -68,6 +68,7 @@ public class MemoryLogMinerEventProcessor extends AbstractLogMinerEventProcessor
     private final Map<String, Scn> recentlyProcessedTransactionsCache = new HashMap<>();
     private final Set<Scn> schemaChangesCache = new HashSet<>();
     private final Set<String> abandonedTransactionsCache = new HashSet<>();
+    private final Set<String> oversizedTransactionsCache = new HashSet<>();
     private final IdentityUtil identityUtil;
 
     public MemoryLogMinerEventProcessor(ChangeEventSourceContext context,
@@ -196,6 +197,7 @@ public class MemoryLogMinerEventProcessor extends AbstractLogMinerEventProcessor
     @Override
     protected void removeTransactionAndEventsFromCache(MemoryTransaction transaction) {
         abandonedTransactionsCache.remove(transaction.getTransactionId());
+        oversizedTransactionsCache.remove(transaction.getTransactionId());
     }
 
     @Override
@@ -215,6 +217,7 @@ public class MemoryLogMinerEventProcessor extends AbstractLogMinerEventProcessor
     protected void finalizeTransactionRollback(String transactionId, Scn rollbackScn) {
         transactionCache.remove(transactionId);
         abandonedTransactionsCache.remove(transactionId);
+        oversizedTransactionsCache.remove(transactionId);
         recentlyProcessedTransactionsCache.put(transactionId, rollbackScn);
         updateActiveEventsCount();
     }
@@ -229,8 +232,8 @@ public class MemoryLogMinerEventProcessor extends AbstractLogMinerEventProcessor
 
     @Override
     protected void addToTransaction(String transactionId, LogMinerEventRow row, Supplier<LogMinerEvent> eventSupplier) {
-        if (abandonedTransactionsCache.contains(transactionId)) {
-            logAbandonIdentity(transactionId, eventSupplier.get());
+        if (oversizedTransactionsCache.contains(transactionId)) {
+            logOversizedTransaction(transactionId, eventSupplier.get());
             return;
         }
         if (!isRecentlyProcessed(transactionId)) {
@@ -245,9 +248,9 @@ public class MemoryLogMinerEventProcessor extends AbstractLogMinerEventProcessor
                 LOGGER.error("Abandon oversized transaction {}", transactionId);
                 // Discard the transaction from TransactionCache and to make it releasable.
                 List<LogMinerEvent> events = getAndRemoveTransactionFromCache(transactionId).getEvents();
-                events.forEach(event -> logAbandonIdentity(transactionId, event));
+                events.forEach(event -> logOversizedTransaction(transactionId, event));
                 events.clear();
-                abandonedTransactionsCache.add(transactionId);
+                oversizedTransactionsCache.add(transactionId);
                 metrics.incrementOversizedTransactions();
                 return;
             }
@@ -290,7 +293,7 @@ public class MemoryLogMinerEventProcessor extends AbstractLogMinerEventProcessor
         }
     }
 
-    private void logAbandonIdentity(String transactionId, LogMinerEvent event) {
+    private void logOversizedTransaction(String transactionId, LogMinerEvent event) {
         try {
             if (event instanceof DmlEvent) {
                 DmlEvent dmlEvent = (DmlEvent) event;
